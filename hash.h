@@ -51,8 +51,15 @@ typedef struct buffer_info_Hash
     unsigned long range_read_hit[16];
     unsigned long range_write_hit[16];
 
+    //record window dram miss count
+    unsigned long window_write_miss;
+
     // 记录不同dram大小下的命中率
     double dram_hit[16];
+    //接收python参数
+    double k;
+    double c;
+    double mae;
 } tHash;
 
 

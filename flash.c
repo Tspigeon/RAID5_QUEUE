@@ -21,6 +21,7 @@ Hao Luo         2011/01/01        2.0           Change               luohao13568
 #include "ssd.h"
 #include "hash.h"
 #include <time.h>
+#include <math.h>
 //#include "layer_weight.h"
 extern int index1; 
 extern int index2;
@@ -2964,6 +2965,7 @@ struct ssd_info * insert_2_SSD1_buffer(struct ssd_info *ssd,unsigned int lpn,int
         free_sector=ssd->dram->SSD1_buffer->max_buffer_sector-ssd->dram->SSD1_buffer->buffer_sector_count;
         if(buffer_sub->lpn != ssd->stripe.checkLpn){
             ssd->dram->SSD1_buffer->write_miss_hit++;
+            ssd->dram->SSD1_buffer->window_write_miss++;
         }
         // else{
         //     ssd->dram->SSD1_buffer->parity_write_miss_hit++;
@@ -3327,6 +3329,7 @@ struct ssd_info * insert_2_SSD2_buffer(struct ssd_info *ssd,unsigned int lpn,int
         free_sector=ssd->dram->SSD2_buffer->max_buffer_sector-ssd->dram->SSD2_buffer->buffer_sector_count;
         if(buffer_sub->lpn != ssd->stripe.checkLpn){
             ssd->dram->SSD2_buffer->write_miss_hit++;
+            ssd->dram->SSD2_buffer->window_write_miss++;
         }
         // else{
             // ssd->dram->SSD2_buffer->parity_write_hit++;
@@ -3684,6 +3687,7 @@ struct ssd_info * insert_2_SSD3_buffer(struct ssd_info *ssd,unsigned int lpn,int
         free_sector=ssd->dram->SSD3_buffer->max_buffer_sector-ssd->dram->SSD3_buffer->buffer_sector_count;
         if(buffer_sub->lpn != ssd->stripe.checkLpn){
             ssd->dram->SSD3_buffer->write_miss_hit++;
+            ssd->dram->SSD3_buffer->window_write_miss++;
         }
         // else{
             // ssd->dram->SSD3_buffer->parity_write_miss_hit++;
@@ -4040,6 +4044,7 @@ struct ssd_info * insert_2_SSD4_buffer(struct ssd_info *ssd,unsigned int lpn,int
         free_sector=ssd->dram->SSD4_buffer->max_buffer_sector-ssd->dram->SSD4_buffer->buffer_sector_count;
         if(buffer_sub->lpn != ssd->stripe.checkLpn){
             ssd->dram->SSD4_buffer->write_miss_hit++;
+            ssd->dram->SSD4_buffer->window_write_miss++;
         }
         // else{
             // ssd->dram->SSD4_buffer->parity_write_miss_hit++;
@@ -5022,32 +5027,270 @@ void trans_sub_from_host_to_buffer(struct ssd_info *ssd,int patchID) {;
     }
 }
 
-void insert_buffer(struct ssd_info *ssd,int sub_ssd,unsigned int lpn,int state,struct sub_request *sub,struct request *req,struct sub_request * buffer_sub,int first_write,int last_sub_pop)
-{
+//收集数据的函数
+void record_cr(struct ssd_info *ssd, int record_size){
+    //重新开始统计
+    if(ssd->circle_times >= 0){
+        if(ssd->window_record <= record_size * 1024){    //设置窗口大小一个窗口
+            if(ssd->window_record == 0 && ssd->circle_times == 0){
+                //clear the features for new window collect
+                for (int iter = 0; iter < 16; iter++) {
+                    ssd->dram->SSD1_buffer->dram_hit[iter] = 0;
+                    ssd->dram->SSD1_buffer->window_write_miss = 0;
+                    ssd->dram->SSD2_buffer->dram_hit[iter] = 0;
+                    ssd->dram->SSD2_buffer->window_write_miss = 0;
+                    ssd->dram->SSD3_buffer->dram_hit[iter] = 0;
+                    ssd->dram->SSD3_buffer->window_write_miss = 0;
+                    ssd->dram->SSD4_buffer->dram_hit[iter] = 0;
+                    ssd->dram->SSD4_buffer->window_write_miss = 0;
+                }
+            }
+            ssd->window_record++;
+        }else{
+            for (int iter = 0; iter < 16; iter++) {
+                ssd->dram->SSD1_buffer->dram_hit[iter] = (double) ssd->dram->SSD1_buffer->range_write_hit[iter] /
+                                                         (ssd->dram->SSD1_buffer->range_write_hit[15] +
+                                                          ssd->dram->SSD1_buffer->window_write_miss);
+                fprintf(ssd->dram_file, "%d, %d, %lf\n", 1, (iter + 1) * 2, ssd->dram->SSD1_buffer->dram_hit[iter]);
+                ssd->dram->SSD2_buffer->dram_hit[iter] = (double) ssd->dram->SSD2_buffer->range_write_hit[iter] /
+                                                         (ssd->dram->SSD2_buffer->range_write_hit[15] +
+                                                          ssd->dram->SSD2_buffer->window_write_miss);
+                fprintf(ssd->dram_file, "%d, %d, %lf\n", 2, (iter + 1) * 2, ssd->dram->SSD2_buffer->dram_hit[iter]);
+                ssd->dram->SSD3_buffer->dram_hit[iter] = (double) ssd->dram->SSD3_buffer->range_write_hit[iter] /
+                                                         (ssd->dram->SSD3_buffer->range_write_hit[15] +
+                                                          ssd->dram->SSD3_buffer->window_write_miss);
+                fprintf(ssd->dram_file, "%d, %d, %lf\n", 3, (iter + 1) * 2, ssd->dram->SSD3_buffer->dram_hit[iter]);
+                ssd->dram->SSD4_buffer->dram_hit[iter] = (double) ssd->dram->SSD4_buffer->range_write_hit[iter] /
+                                                         (ssd->dram->SSD4_buffer->range_write_hit[15] +
+                                                          ssd->dram->SSD4_buffer->window_write_miss);
+                fprintf(ssd->dram_file, "%d, %d, %lf\n", 4, (iter + 1) * 2, ssd->dram->SSD4_buffer->dram_hit[iter]);
+            }
+            ssd->circle_times++;
+            ssd->window_record = 0;
+        }
+        if(ssd->circle_times == 4){
+            fclose(ssd->dram_file);
+            //circle time -1 stop
+            ssd->circle_times = -1;
+        }
+    }else{
+        printf("not until to calulate");
+    }
+}
+
+// 解析JSON文件（直接解析简单格式）
+void parse_simple_json(struct ssd_info *ssd, const char *filename) {
+
+    FILE *fp = fopen(filename, "r");
+    if (!fp) {
+        printf("错误: 无法打开文件 %s\n", filename);
+    }
+
+    // 读取整个文件
+    fseek(fp, 0, SEEK_END);
+    long file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    char *buffer = malloc(file_size + 1);
+    if (!buffer) {
+        fclose(fp);
+    }
+
+    fread(buffer, 1, file_size, fp);
+    buffer[file_size] = '\0';
+    fclose(fp);
+
+//    printf("JSON文件内容:\n%s\n", buffer);
+
+    // 查找SSD参数
+    int ssd_count = 1;
+    char *ptr = buffer;
+
+    while (ssd_count < 5) {
+        // 查找SSD编号
+        char *ssd_start = strchr(ptr, '"');
+        if (!ssd_start) break;
+
+        char *ssd_end = strchr(ssd_start + 1, '"');
+        if (!ssd_end) break;
+
+        // 提取SSD编号
+        int ssd_len = ssd_end - ssd_start - 1;
+
+        // 查找k参数
+        char *k_start = strstr(ssd_end, "\"k\":");
+        if (!k_start) break;
+
+        // 跳过可能的空格
+        char *k_value = k_start + 4;
+        while (*k_value == ' ') k_value++;
+
+        // 解析k值
+        switch (ssd_count){
+            case 1:
+                sscanf(k_value, "%lf", &ssd->dram->SSD1_buffer->k);
+                break;
+            case 2:
+                sscanf(k_value, "%lf", &ssd->dram->SSD2_buffer->k);
+                break;
+            case 3:
+                sscanf(k_value, "%lf", &ssd->dram->SSD3_buffer->k);
+                break;
+            case 4:
+                sscanf(k_value, "%lf", &ssd->dram->SSD4_buffer->k);
+                break;
+            default:
+                printf("ssd_buffer do not match!");
+                abort();
+                break;
+        }
+
+
+
+        // 查找c参数
+        char *c_start = strstr(k_value, "\"c\":");
+        if (!c_start) break;
+
+        // 跳过可能的空格
+        char *c_value = c_start + 4;
+        while (*c_value == ' ') c_value++;
+
+        // 解析c值
+        switch (ssd_count){
+            case 1:
+                sscanf(c_value, "%lf", &ssd->dram->SSD1_buffer->c);
+                break;
+            case 2:
+                sscanf(c_value, "%lf", &ssd->dram->SSD2_buffer->c);
+                break;
+            case 3:
+                sscanf(c_value, "%lf", &ssd->dram->SSD3_buffer->c);
+                break;
+            case 4:
+                sscanf(c_value, "%lf", &ssd->dram->SSD4_buffer->c);
+                break;
+            default:
+                printf("ssd_buffer do not match!");
+                abort();
+                break;
+        }
+
+		// 查找e参数
+		char *e_start = strstr(c_value, "\"e\":");
+		if (!e_start) break;
+
+		// 跳过可能的空格
+		char *e_value = e_start + 4;
+		while (*e_value == ' ') e_value++;
+
+		// 解析c值
+		switch (ssd_count){
+			case 1:
+				sscanf(e_value, "%lf", &ssd->dram->SSD1_buffer->mae);
+				break;
+			case 2:
+				sscanf(e_value, "%lf", &ssd->dram->SSD2_buffer->mae);
+				break;
+			case 3:
+				sscanf(e_value, "%lf", &ssd->dram->SSD3_buffer->mae);
+				break;
+			case 4:
+				sscanf(e_value, "%lf", &ssd->dram->SSD4_buffer->mae);
+				break;
+			default:
+				printf("ssd_buffer do not match!");
+				abort();
+				break;
+		}
+
+        ssd_count++;
+
+        // 移动到下一个位置
+        ptr = e_value + 1;
+    }
+
+    free(buffer);
+
+}
+
+// 调用Python脚本
+int call_python_script(const char *python_script,
+                       const char *input_csv,
+                       const char *output_json) {
+    char command[512];
+    snprintf(command, sizeof(command),
+             "python3 %s %s %s",
+             python_script, input_csv, output_json);
+
+//    printf("\n执行命令: %s\n", command);
+
+    int ret = system(command);
+    if (ret != 0) {
+        fprintf(stderr, "Python脚本执行失败，返回码: %d\n", ret);
+        return 0;
+    }
+
+    return 1;
+}
+//计算预测的准确率
+double predict_hit_rate(struct ssd_info *ssd, int sub_ssd, int cache_size) {
     if(sub_ssd<0 || sub_ssd >7)
     {
         printf("Error sub_ssd!");
         abort();
     }
-    if(ssd->window_record <= 64 * 1024){
-        ssd->window_record++;
-    }else{
-        for(int iter = 0; iter < 16; iter++){
-            ssd->dram->SSD1_buffer->dram_hit[iter] = (double)ssd->dram->SSD1_buffer->range_write_hit[iter]/(ssd->dram->SSD1_buffer->write_hit + ssd->dram->SSD1_buffer->write_miss_hit);
-            fprintf(ssd->dram_file, "%d, %d, %lf\n", 1, iter*2, ssd->dram->SSD1_buffer->dram_hit[iter]);
-            ssd->dram->SSD2_buffer->dram_hit[iter] = (double)ssd->dram->SSD2_buffer->range_write_hit[iter]/(ssd->dram->SSD2_buffer->write_hit + ssd->dram->SSD2_buffer->write_miss_hit);
-            fprintf(ssd->dram_file, "%d, %d, %lf\n", 2, iter*2, ssd->dram->SSD2_buffer->dram_hit[iter]);
-            ssd->dram->SSD3_buffer->dram_hit[iter] = (double)ssd->dram->SSD3_buffer->range_write_hit[iter]/(ssd->dram->SSD3_buffer->write_hit + ssd->dram->SSD3_buffer->write_miss_hit);
-            fprintf(ssd->dram_file, "%d, %d, %lf\n", 3, iter*2, ssd->dram->SSD3_buffer->dram_hit[iter]);
-            ssd->dram->SSD4_buffer->dram_hit[iter] = (double)ssd->dram->SSD4_buffer->range_write_hit[iter]/(ssd->dram->SSD4_buffer->write_hit + ssd->dram->SSD4_buffer->write_miss_hit);
-            fprintf(ssd->dram_file, "%d, %d, %lf\n", 4, iter*2, ssd->dram->SSD4_buffer->dram_hit[iter]);
+    sub_ssd = sub_ssd % 4;
+    switch(sub_ssd){
+        case 0:
+            return 1.0 - exp(ssd->dram->SSD1_buffer->k * pow(cache_size, ssd->dram->SSD1_buffer->c));
+            break;
+        case 1:
+            return 1.0 - exp(ssd->dram->SSD2_buffer->k * pow(cache_size, ssd->dram->SSD2_buffer->c));
+            break;
+        case 2:
+            return 1.0 - exp(ssd->dram->SSD3_buffer->k * pow(cache_size, ssd->dram->SSD3_buffer->c));
+            break;
+        case 3:
+            return 1.0 - exp(ssd->dram->SSD4_buffer->k * pow(cache_size, ssd->dram->SSD4_buffer->c));
+            break;
+        default:
+            printf("ssd_buffer do not match!");
+            abort();
+            break;
+    }
+
+}
+
+void insert_buffer(struct ssd_info *ssd,int sub_ssd,unsigned int lpn,int state,struct sub_request *sub,struct request *req,struct sub_request * buffer_sub,int first_write,int last_sub_pop)
+{
+
+    if(sub_ssd<0 || sub_ssd >7)
+    {
+        printf("Error sub_ssd!");
+        abort();
+    }
+    //start input to csv
+    if(ssd->circle_times >= 0) {
+        record_cr(ssd, 64);
+        //执行完成最后一轮
+        if(ssd->circle_times < 0){
+            const char *python_script = "calculate_kc.py";
+            const char * input_csv = "./result/dram_ratio.csv";
+            const char *output_json = "./result/ssd_params.json";
+            if(call_python_script(python_script, input_csv, output_json)){
+                parse_simple_json(ssd, output_json);
+            }else{
+                printf("执行失败");
+            }
         }
-        ssd->circle_times++;
-        ssd->window_record = 0;
     }
-    if(ssd->circle_times == 4){
-        fclose(ssd->dram_file);
+    double p_hit = 0;
+    double diff = 0;
+    if(ssd->dram->SSD1_buffer->k != 0){
+        p_hit = predict_hit_rate(ssd, 0, 16);
+        diff = fabs(ssd->dram->SSD1_buffer->dram_hit[7] - p_hit);
     }
+
     sub_ssd = sub_ssd % 4;
     switch(sub_ssd){
         case 0:

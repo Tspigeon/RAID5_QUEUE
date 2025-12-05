@@ -393,6 +393,8 @@ struct dram_info * initialize_dram(struct ssd_info * ssd)
 	dram->SSD1_buffer->total_time_service_sub = 0;
 	dram->SSD1_buffer->total_sub_count = 0;
 	dram->SSD1_buffer->per_round_blocked_count = 0;
+    dram->SSD1_buffer->k = 0;
+    dram->SSD1_buffer->c = 0;
 
     dram->SSD2_buffer->Max_Blocked_Count = 0;
     dram->SSD2_buffer->blocked_trigger_count = 0;
@@ -402,6 +404,8 @@ struct dram_info * initialize_dram(struct ssd_info * ssd)
 	dram->SSD2_buffer->total_time_service_sub = 0;
 	dram->SSD2_buffer->total_sub_count = 0;
 	dram->SSD2_buffer->per_round_blocked_count = 0;
+    dram->SSD2_buffer->k = 0;
+    dram->SSD2_buffer->c = 0;
 
 	dram->SSD3_buffer->Max_Blocked_Count = 0;
     dram->SSD3_buffer->blocked_trigger_count = 0;
@@ -411,6 +415,8 @@ struct dram_info * initialize_dram(struct ssd_info * ssd)
 	dram->SSD3_buffer->total_time_service_sub = 0;
 	dram->SSD3_buffer->total_sub_count = 0;
 	dram->SSD3_buffer->per_round_blocked_count = 0;
+    dram->SSD3_buffer->k = 0;
+    dram->SSD3_buffer->c = 0;
 
 	dram->SSD4_buffer->Max_Blocked_Count = 0;
     dram->SSD4_buffer->blocked_trigger_count = 0;
@@ -420,6 +426,8 @@ struct dram_info * initialize_dram(struct ssd_info * ssd)
 	dram->SSD4_buffer->total_time_service_sub = 0;
 	dram->SSD4_buffer->total_sub_count = 0;
 	dram->SSD4_buffer->per_round_blocked_count = 0;
+    dram->SSD4_buffer->k = 0;
+    dram->SSD4_buffer->c = 0;
  
 	dram->buffer->max_buffer_sector=ssd->parameter->dram_capacity/SECTOR; //512
     dram->SSD1_buffer->max_buffer_sector=((dram->SSD1_capacity/SECTOR/2));
@@ -449,12 +457,16 @@ struct dram_info * initialize_dram(struct ssd_info * ssd)
 
 	dram->SSD1_buffer->write_hit = 0;
 	dram->SSD1_buffer->write_miss_hit = 0;
+    dram->SSD1_buffer->window_write_miss = 0;
 	dram->SSD2_buffer->write_hit = 0;
 	dram->SSD2_buffer->write_miss_hit = 0;
+    dram->SSD2_buffer->window_write_miss = 0;
 	dram->SSD3_buffer->write_hit = 0;
 	dram->SSD3_buffer->write_miss_hit = 0;
+    dram->SSD3_buffer->window_write_miss = 0;
 	dram->SSD4_buffer->write_hit = 0;
 	dram->SSD4_buffer->write_miss_hit = 0;
+    dram->SSD4_buffer->window_write_miss = 0;
 
     dram->buffer_free_sectors = (struct buffer_free_sector *)malloc(STRIPENUM * sizeof(struct buffer_free_sector));
     alloc_assert(dram->buffer_free_sectors, "dram->buffer_free_sectors");
