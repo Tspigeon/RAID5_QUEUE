@@ -1142,7 +1142,7 @@ int get_requests(struct ssd_info *ssd)
 		pre_req = pre_req->next_node;
 	}
 
-	if (request1->operation==1)             //锟斤拷锟斤拷平锟斤拷锟斤拷锟斤拷锟叫? 1为锟斤拷 0为写
+	if (request1->operation==1)             // 1为读 0为写
 	{
 		ssd->ave_read_size=(ssd->ave_read_size*ssd->read_request_count+request1->size)/(ssd->read_request_count+1);
 	} 

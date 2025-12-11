@@ -60,6 +60,11 @@ typedef struct buffer_info_Hash
     double k;
     double c;
     double mae;
+    //每个ssd的请求到达速率
+    double lambda;
+    int64_t max_t;
+    int64_t min_t;
+    unsigned long num_req;
 } tHash;
 
 

@@ -578,6 +578,7 @@ struct ssd_info{
     //周期计算缓存命中率
     long window_record;
     int circle_times;
+    int record_capacity;
 };
 
 struct wl_table {

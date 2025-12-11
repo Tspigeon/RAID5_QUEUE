@@ -222,6 +222,10 @@ struct ssd_info *initiation(struct ssd_info *ssd)
 	ssd->footPrint_count = 0;
 	ssd->new_page_count = 0;
 
+    //queue
+    ssd->window_record = 0;
+    ssd->record_capacity = 128;
+
     ssd->processing_sub = (struct sub_request**)malloc(sizeof(struct sub_request*) * STRIPENUM);
     for(int k = 0;k < STRIPENUM;k++){
         ssd->processing_sub[k] = NULL;
@@ -467,6 +471,15 @@ struct dram_info * initialize_dram(struct ssd_info * ssd)
 	dram->SSD4_buffer->write_hit = 0;
 	dram->SSD4_buffer->write_miss_hit = 0;
     dram->SSD4_buffer->window_write_miss = 0;
+
+    dram->SSD1_buffer->max_t = 0;
+    dram->SSD1_buffer->min_t = MAX_INT64;
+    dram->SSD2_buffer->max_t = 0;
+    dram->SSD2_buffer->min_t = MAX_INT64;
+    dram->SSD3_buffer->max_t = 0;
+    dram->SSD3_buffer->min_t = MAX_INT64;
+    dram->SSD4_buffer->max_t = 0;
+    dram->SSD4_buffer->min_t = MAX_INT64;
 
     dram->buffer_free_sectors = (struct buffer_free_sector *)malloc(STRIPENUM * sizeof(struct buffer_free_sector));
     alloc_assert(dram->buffer_free_sectors, "dram->buffer_free_sectors");

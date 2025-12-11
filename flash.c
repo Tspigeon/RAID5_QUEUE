@@ -3687,7 +3687,6 @@ struct ssd_info * insert_2_SSD3_buffer(struct ssd_info *ssd,unsigned int lpn,int
         free_sector=ssd->dram->SSD3_buffer->max_buffer_sector-ssd->dram->SSD3_buffer->buffer_sector_count;
         if(buffer_sub->lpn != ssd->stripe.checkLpn){
             ssd->dram->SSD3_buffer->write_miss_hit++;
-            ssd->dram->SSD3_buffer->window_write_miss++;
         }
         // else{
             // ssd->dram->SSD3_buffer->parity_write_miss_hit++;
@@ -3696,6 +3695,8 @@ struct ssd_info * insert_2_SSD3_buffer(struct ssd_info *ssd,unsigned int lpn,int
         {
             ssd->dram->SSD3_buffer->write_free++;
             flag=1;
+        }else{
+            ssd->dram->SSD3_buffer->window_write_miss++;
         }
         if(flag==0)
         {
@@ -5029,9 +5030,12 @@ void trans_sub_from_host_to_buffer(struct ssd_info *ssd,int patchID) {;
 
 //收集数据的函数
 void record_cr(struct ssd_info *ssd, int record_size){
-    //重新开始统计
+    //重新开始统计, 虚拟缓存命中率以及请求到达时间lamdba
+    //检查缓存是否填满
+    int sum = ssd->dram->SSD1_buffer->buffer_sector_count + ssd->dram->SSD1_buffer->buffer_sector_count +
+            ssd->dram->SSD1_buffer->buffer_sector_count+ssd->dram->SSD1_buffer->buffer_sector_count - 4 * (ssd->dram->SSD1_buffer->max_buffer_sector);
     if(ssd->circle_times >= 0){
-        if(ssd->window_record <= record_size * 1024){    //设置窗口大小一个窗口
+        if(ssd->window_record <= record_size * 1024 || sum != 0){    //设置窗口大小一个窗口
             if(ssd->window_record == 0 && ssd->circle_times == 0){
                 //clear the features for new window collect
                 for (int iter = 0; iter < 16; iter++) {
@@ -5051,19 +5055,19 @@ void record_cr(struct ssd_info *ssd, int record_size){
                 ssd->dram->SSD1_buffer->dram_hit[iter] = (double) ssd->dram->SSD1_buffer->range_write_hit[iter] /
                                                          (ssd->dram->SSD1_buffer->range_write_hit[15] +
                                                           ssd->dram->SSD1_buffer->window_write_miss);
-                fprintf(ssd->dram_file, "%d, %d, %lf\n", 1, (iter + 1) * 2, ssd->dram->SSD1_buffer->dram_hit[iter]);
+                fprintf(ssd->dram_file, "%d, %lf, %lf\n", 1, ((iter + 1) * 2/32.0), ssd->dram->SSD1_buffer->dram_hit[iter]);
                 ssd->dram->SSD2_buffer->dram_hit[iter] = (double) ssd->dram->SSD2_buffer->range_write_hit[iter] /
                                                          (ssd->dram->SSD2_buffer->range_write_hit[15] +
                                                           ssd->dram->SSD2_buffer->window_write_miss);
-                fprintf(ssd->dram_file, "%d, %d, %lf\n", 2, (iter + 1) * 2, ssd->dram->SSD2_buffer->dram_hit[iter]);
+                fprintf(ssd->dram_file, "%d, %lf, %lf\n", 2, ((iter + 1) * 2/32.0), ssd->dram->SSD2_buffer->dram_hit[iter]);
                 ssd->dram->SSD3_buffer->dram_hit[iter] = (double) ssd->dram->SSD3_buffer->range_write_hit[iter] /
                                                          (ssd->dram->SSD3_buffer->range_write_hit[15] +
                                                           ssd->dram->SSD3_buffer->window_write_miss);
-                fprintf(ssd->dram_file, "%d, %d, %lf\n", 3, (iter + 1) * 2, ssd->dram->SSD3_buffer->dram_hit[iter]);
+                fprintf(ssd->dram_file, "%d, %lf, %lf\n", 3, ((iter + 1) * 2/32.0), ssd->dram->SSD3_buffer->dram_hit[iter]);
                 ssd->dram->SSD4_buffer->dram_hit[iter] = (double) ssd->dram->SSD4_buffer->range_write_hit[iter] /
                                                          (ssd->dram->SSD4_buffer->range_write_hit[15] +
                                                           ssd->dram->SSD4_buffer->window_write_miss);
-                fprintf(ssd->dram_file, "%d, %d, %lf\n", 4, (iter + 1) * 2, ssd->dram->SSD4_buffer->dram_hit[iter]);
+                fprintf(ssd->dram_file, "%d, %lf, %lf\n", 4, ((iter + 1) * 2/32.0), ssd->dram->SSD4_buffer->dram_hit[iter]);
             }
             ssd->circle_times++;
             ssd->window_record = 0;
@@ -5075,6 +5079,81 @@ void record_cr(struct ssd_info *ssd, int record_size){
         }
     }else{
         printf("not until to calulate");
+    }
+}
+void record_lambda(struct ssd_info *ssd, int sub_ssd, struct sub_request *buffer_sub){
+    sub_ssd = sub_ssd % 4;
+    if(ssd->circle_times >= 0) {
+        //重置数据开始新一轮统计
+        if(ssd->circle_times == 0){
+            ssd->dram->SSD1_buffer->max_t = 0;
+            ssd->dram->SSD1_buffer->min_t = MAX_INT64;
+            ssd->dram->SSD2_buffer->max_t = 0;
+            ssd->dram->SSD2_buffer->min_t = MAX_INT64;
+            ssd->dram->SSD3_buffer->max_t = 0;
+            ssd->dram->SSD3_buffer->min_t = MAX_INT64;
+            ssd->dram->SSD4_buffer->max_t = 0;
+            ssd->dram->SSD4_buffer->min_t = MAX_INT64;
+            ssd->dram->SSD1_buffer->num_req = 0;
+            ssd->dram->SSD2_buffer->num_req = 0;
+            ssd->dram->SSD3_buffer->num_req = 0;
+            ssd->dram->SSD4_buffer->num_req = 0;
+        }
+        switch (sub_ssd) {
+            case 0:
+                //统计subreq到达情况
+                ssd->dram->SSD1_buffer->num_req++;
+                if (buffer_sub->begin_time > ssd->dram->SSD1_buffer->max_t) {
+                    ssd->dram->SSD1_buffer->max_t = buffer_sub->begin_time;
+                }
+                if (buffer_sub->begin_time < ssd->dram->SSD1_buffer->min_t) {
+                    ssd->dram->SSD1_buffer->min_t = buffer_sub->begin_time;
+                }
+                break;
+            case 1:
+                ssd->dram->SSD2_buffer->num_req++;
+                if (buffer_sub->begin_time > ssd->dram->SSD2_buffer->max_t) {
+                    ssd->dram->SSD2_buffer->max_t = buffer_sub->begin_time;
+                }
+                if (buffer_sub->begin_time < ssd->dram->SSD2_buffer->min_t) {
+                    ssd->dram->SSD2_buffer->min_t = buffer_sub->begin_time;
+                }
+                break;
+            case 2:
+                ssd->dram->SSD3_buffer->num_req++;
+                if (buffer_sub->begin_time > ssd->dram->SSD3_buffer->max_t) {
+                    ssd->dram->SSD3_buffer->max_t = buffer_sub->begin_time;
+                }
+                if (buffer_sub->begin_time < ssd->dram->SSD3_buffer->min_t) {
+                    ssd->dram->SSD3_buffer->min_t = buffer_sub->begin_time;
+                }
+                break;
+            case 3:
+                ssd->dram->SSD4_buffer->num_req++;
+                if (buffer_sub->begin_time > ssd->dram->SSD4_buffer->max_t) {
+                    ssd->dram->SSD4_buffer->max_t = buffer_sub->begin_time;
+                }
+                if (buffer_sub->begin_time < ssd->dram->SSD4_buffer->min_t) {
+                    ssd->dram->SSD4_buffer->min_t = buffer_sub->begin_time;
+                }
+                break;
+            default:
+                printf("ssd error");
+                abort();
+        }
+    }else if(ssd->circle_times == -1){
+        ssd->dram->SSD1_buffer->lambda = ((double) ssd->dram->SSD1_buffer->num_req /
+                                         (ssd->dram->SSD1_buffer->max_t - ssd->dram->SSD1_buffer->min_t)) /
+                                         (1e-6);
+        ssd->dram->SSD2_buffer->lambda = (double) ssd->dram->SSD2_buffer->num_req /
+                                         (ssd->dram->SSD2_buffer->max_t - ssd->dram->SSD2_buffer->min_t) /
+                                         (1e-6);
+        ssd->dram->SSD3_buffer->lambda = (double) ssd->dram->SSD3_buffer->num_req /
+                                         (ssd->dram->SSD3_buffer->max_t - ssd->dram->SSD3_buffer->min_t) /
+                                         (1e-6);
+        ssd->dram->SSD4_buffer->lambda = (double) ssd->dram->SSD4_buffer->num_req /
+                                         (ssd->dram->SSD4_buffer->max_t - ssd->dram->SSD4_buffer->min_t) /
+                                         (1e-6);
     }
 }
 
@@ -5271,14 +5350,16 @@ void insert_buffer(struct ssd_info *ssd,int sub_ssd,unsigned int lpn,int state,s
     }
     //start input to csv
     if(ssd->circle_times >= 0) {
-        record_cr(ssd, 64);
+        record_cr(ssd, ssd->record_capacity);
+        record_lambda(ssd, sub_ssd, buffer_sub);
         //执行完成最后一轮
-        if(ssd->circle_times < 0){
+        if(ssd->circle_times == -1){
             const char *python_script = "calculate_kc.py";
             const char * input_csv = "./result/dram_ratio.csv";
             const char *output_json = "./result/ssd_params.json";
             if(call_python_script(python_script, input_csv, output_json)){
                 parse_simple_json(ssd, output_json);
+                ssd->circle_times = -2;
             }else{
                 printf("执行失败");
             }
@@ -5286,23 +5367,62 @@ void insert_buffer(struct ssd_info *ssd,int sub_ssd,unsigned int lpn,int state,s
     }
     double p_hit = 0;
     double diff = 0;
-    if(ssd->dram->SSD1_buffer->k != 0){
-        p_hit = predict_hit_rate(ssd, 0, 16);
-        diff = fabs(ssd->dram->SSD1_buffer->dram_hit[7] - p_hit);
-    }
+    double a_hit = 0;
+
+
 
     sub_ssd = sub_ssd % 4;
     switch(sub_ssd){
         case 0:
-            ssd= insert_2_SSD1_buffer(ssd,lpn,state,NULL,req,buffer_sub,first_write,last_sub_pop);
+            //判定是否需要重新拟合曲线
+            if(ssd->dram->SSD1_buffer->mae != 0 && ssd->circle_times == -2){
+                a_hit = (double)ssd->dram->SSD1_buffer->write_hit/(ssd->dram->SSD1_buffer->write_hit + ssd->dram->SSD1_buffer->write_miss_hit);
+                p_hit = predict_hit_rate(ssd, 0, 1);
+                diff = fabs(ssd->dram->SSD1_buffer->dram_hit[15] - p_hit);
+                if(diff > ssd->dram->SSD1_buffer->mae * 2){
+                    //误差过大需要重新拟合曲线
+                    ssd->circle_times = 0;
+                    //以8MB收集，可以更快拟合
+                    ssd->record_capacity = 32;
+                }
+            }
+            //insert to specify ssd
+            ssd = insert_2_SSD1_buffer(ssd,lpn,state,NULL,req,buffer_sub,first_write,last_sub_pop);
             break;
         case 1:
+            if(ssd->dram->SSD2_buffer->mae != 0 && ssd->circle_times == -2){
+                a_hit = (double)ssd->dram->SSD2_buffer->write_hit/(ssd->dram->SSD2_buffer->write_hit + ssd->dram->SSD2_buffer->write_miss_hit);
+                p_hit = predict_hit_rate(ssd, 1, 1);
+                diff = fabs(ssd->dram->SSD2_buffer->dram_hit[15] - p_hit);
+                if(diff > ssd->dram->SSD2_buffer->mae * 2){
+                    ssd->circle_times = 0;
+                    ssd->record_capacity = 32;
+                }
+            }
             ssd= insert_2_SSD2_buffer(ssd,lpn,state,NULL,req,buffer_sub,first_write,last_sub_pop);
             break;
         case 2:
+            if(ssd->dram->SSD3_buffer->mae != 0 && ssd->circle_times == -2){
+                a_hit = (double)ssd->dram->SSD3_buffer->write_hit/(ssd->dram->SSD3_buffer->write_hit + ssd->dram->SSD3_buffer->write_miss_hit);
+                p_hit = predict_hit_rate(ssd, 2, 1);
+                diff = fabs(ssd->dram->SSD3_buffer->dram_hit[15] - p_hit);
+                if(diff > ssd->dram->SSD3_buffer->mae * 2){
+                    ssd->circle_times = 0;
+                    ssd->record_capacity = 32;
+                }
+            }
             ssd= insert_2_SSD3_buffer(ssd,lpn,state,NULL,req,buffer_sub,first_write,last_sub_pop);
             break;
         case 3:
+            if(ssd->dram->SSD4_buffer->mae != 0 && ssd->circle_times == -2){
+                a_hit = (double)ssd->dram->SSD4_buffer->write_hit/(ssd->dram->SSD4_buffer->write_hit + ssd->dram->SSD4_buffer->write_miss_hit);
+                p_hit = predict_hit_rate(ssd, 3, 1);
+                diff = fabs(ssd->dram->SSD4_buffer->dram_hit[15] - p_hit);
+                if(diff > ssd->dram->SSD4_buffer->mae * 2){
+                    ssd->circle_times = 0;
+                    ssd->record_capacity = 32;
+                }
+            }
             ssd= insert_2_SSD4_buffer(ssd,lpn,state,NULL,req,buffer_sub,first_write,last_sub_pop);
             break;
         default:
