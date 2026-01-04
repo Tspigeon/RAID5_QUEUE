@@ -5039,6 +5039,7 @@ void record_cr(struct ssd_info *ssd, int record_size){
             if(ssd->window_record == 0 && ssd->circle_times == 0){
                 //clear the features for new window collect
                 for (int iter = 0; iter < 16; iter++) {
+                    ssd->dram_file = fopen("./result/dram_ratio.csv", "w");
                     ssd->dram->SSD1_buffer->dram_hit[iter] = 0;
                     ssd->dram->SSD1_buffer->window_write_miss = 0;
                     ssd->dram->SSD2_buffer->dram_hit[iter] = 0;
@@ -5359,7 +5360,7 @@ void insert_buffer(struct ssd_info *ssd,int sub_ssd,unsigned int lpn,int state,s
             const char *output_json = "./result/ssd_params.json";
             if(call_python_script(python_script, input_csv, output_json)){
                 parse_simple_json(ssd, output_json);
-                ssd->circle_times = -2;
+                ssd->circle_times = 0;
             }else{
                 printf("执行失败");
             }
